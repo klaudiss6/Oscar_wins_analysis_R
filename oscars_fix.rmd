@@ -1,0 +1,1177 @@
+---
+title: "How do Demographics Influence Oscar Wins in Lead Roles and Directing?"
+author: "Kamila Lednická, Sára Košelíková, Klaudie Polednová, Kateřina Černá"
+date: "2025-05-07"
+output:
+  pdf_document:
+    toc: true
+  html_document:
+    theme: united
+    toc: true
+    toc_float: true
+---
+
+```{r, include = FALSE}
+#setwd("C:/Users/kamca/Documents/4. semestr/Exploratory Data Analysis/semestralka")
+#setwd("C:/Users/klaudi_comp/OneDrive - Vysoká škola ekonomická v Praze/vse semestry/fourth semester/exploratorní analýza dat/semestralk")
+
+#df1<-read.csv("C:/Users/kamca/Documents/4. semestr/Exploratory Data Analysis/semestralka/Oscars-demographics-DFE.csv",na.strings = c("Na", "NA", ""))
+#df2 <- read.csv("C:/Users/kamca/Documents/4. semestr/Exploratory Data Analysis/semestralka/movies_data.csv",na.strings = c("Na", "NA", ""))
+df1<-read.csv("C:/Users/klaudi_comp/OneDrive - Vysoká škola ekonomická v Praze/vse semestry/fourth semester/exploratorní analýza dat/semestralk/Oscars-demographics-DFE.csv",na.strings = c("Na", "NA", ""))
+df2 <- read.csv("C:/Users/klaudi_comp/OneDrive - Vysoká škola ekonomická v Praze/vse semestry/fourth semester/exploratorní analýza dat/semestralk/movies_data.csv",na.strings = c("Na", "NA", ""))
+
+#df1<-read.csv("/Users/sarakoselikova/Desktop/Oscars-demographics-DFE.csv",na.strings = c("Na", "NA", ""))
+#df2 <- read.csv("/Users/sarakoselikova/Desktop/movies_data.csv",na.strings = c("Na", "NA", ""))
+
+
+#df1<-read.csv("Oscars-demographics-DFE.csv",na.strings = c("Na", "NA", ""))
+#df2 <- read.csv("movies_data.csv",na.strings = c("Na", "NA", ""))
+
+library(tidyr)
+library(dplyr)
+library(tidyverse)
+library(lubridate)
+library(ggplot2)
+library(GGally)
+library(corrplot)
+library(RColorBrewer)
+library(DescTools)
+library(stringr)
+library(tm)
+
+```
+
+
+
+
+# **Preparing & Transforming data**
+
+
+```{r, eval = FALSE }
+head(df1)
+summary(df1)
+nrow(df1)
+ncol(df1)
+dim(df1)
+str(df1)       
+sapply(df1, class) 
+```
+
+* The `oscar demographics` dataset contains information about Oscar winners in the years 1927-2014.
+
+* It has information about birthplace, ethnicity, race, religion, sexual orientation, movie and award details.
+
+* It has 447 rows and 27 columns. 
+
+* The dataset includes a mix of numeric, characer, integer, logical values. 
+
+
+```{r, eval=FALSE}
+head(df2)
+summary(df2)
+nrow(df2)
+ncol(df2)
+dim(df2)
+str(df2)       
+sapply(df2, class) 
+```
+
+* The `movies data` dataset contains information about movies, received nominations and awards.
+
+* It has information about films, category of win, years of film and ceremony, and wheter the nomination won or not.
+
+* It has 3974 rows and 16 columns. 
+
+* The dataset includes integer and character and numeric values. 
+
+
+## **Subsetting Demographics**
+We decided to subset original dataset to only columns we need and that make sense for our analysis.
+
+```{r}
+# subsetting columns
+demographics <- df1[c("X_unit_id","birthplace", "date_of_birth", "race_ethnicity", "religion", "sexual_orientation","year_of_award","award", "movie", "person")]
+
+# taking a look at the data
+summary(demographics)
+```
+
+
+
+## **Missing values**
+
+Next, we will take care of missing values: 
+
+```{r}
+colSums(is.na(demographics))
+```
+**RELIGION**
+
+There are several missing values for religion, we decided to include `Unknown` value for religion.
+
+```{r}
+# Setting NAs in religion as "Unknown" religion
+demographics$religion[is.na(demographics$religion)] <- "Unknown"
+
+# Checking all religions
+unique(demographics$religion)
+
+# Replacing "See Note" religion with "Unknown"
+demographics$religion[demographics$religion == "See Note"] <- "Unknown"
+```
+
+After taking a closer look at all of the religions, it seem like there was an error in creation of one instance. The `See Note` religion doesn't exist as we discovered after a quick search, it is most likely a problem created in data entry. We have decided to set the religion as `Unknown` instead.
+
+**SEXUAL ORIENTATION**
+
+Next, we will handle the missing values in sexual orientation. There are 11 missing values. We decided to add them to the already existing category `Matter of Dispute`.
+
+```{r}
+demographics[is.na(demographics$sexual_orientation),]$sexual_orientation <- "Matter of Dispute"
+```
+
+**BIRTH PLACE**
+
+The only other missing values we have encountered are in the column `birthplace`. There are only 2 missing values and since this info is probably publicly available we could fix this manually, but instead we will perform **pairwise deletion** in case we need this variable in future analyses. 
+
+
+## **Transformation**
+
+**COUNTRY**
+
+We will create a new variable `country` from the variable `birthplace` by which we can analyze Oscar winners. The main purpose of this simplification is the excessive granularity of the data. There would be very little Oscar winners in each city if we kept this level of detail, that is why we have decided to generalize more. 
+
+```{r}
+# Taking a look at the current values in the "birthplace" column.
+head(demographics$birthplace)
+```
+In the next step we will perform the transformation.
+
+```{r}
+
+# Fixing some incorrectly imported values in "birthplace"
+demographics[59,]$birthplace <- "Čáslav, Czechoslovakia"
+demographics[50,]$birthplace <- "Čáslav, Czechoslovakia"
+
+
+# Function for extracting the last value after "," in "birthplace" column
+extract_last_location <- function(x) {
+  sub(".*,\\s*", "", x)
+}
+
+demographics$birthcountry<- sapply(demographics$birthplace, extract_last_location)
+
+
+# Creating a vector of all the abbreviations of state names in the United States of America
+us_states <- c("AL", "AK", "AZ", "AR", "CA", "CO", "CT", "DE", "FL", "GA",
+               "HI", "ID", "IL", "IN", "IA", "KS", "KY", "LA", "ME", "MD",
+               "MA", "MI", "MN", "MS", "MO", "MT", "NE", "NV", "NH", "NJ",
+               "NM", "NY", "NC", "ND", "OH", "OK", "OR", "PA", "RI", "SC",
+               "SD", "TN", "TX", "UT", "VT", "VA", "WA", "WV", "WI", "WY", "New York City")
+
+# Function for the replacement of abbreviated state for USA as a country
+replace_states <- function(country) {
+  cleaned <- toupper(trimws(country))
+  if (cleaned %in% us_states) {
+    return("USA")
+  } else {
+    return(country)
+  }
+}
+
+demographics<- demographics %>%
+  mutate(country = unname(sapply(birthcountry, replace_states)))
+
+
+# Displaying the final results in the column "country"
+head(demographics$country)
+
+```
+
+**Date of birth problem** 
+
+```{r,echo = FALSE}
+head(demographics$date_of_birth, 30)
+```
+
+The quality of `date_of_birth` column is so poor it would need manual correction. We were considering omitting it completely, but we have decided to try and salvage some of the data. 
+
+For this purpose, we created a copy of our demographics dataset in order to not loose any of our other relevant data in the process of `date_of_birth` column correction.
+
+```{r}
+# Creating a copy of our dataset
+demographics_age <- demographics
+
+# Removing "date_of_birth" from our main dataset
+demographics <- subset(demographics, select = -date_of_birth)
+```
+
+
+**AGE**
+
+For the extraction of `age` variable we will need to fix the `date_of_birth` variable values considerably. Since it is not completely clear which year of birth was intended originally, we will have to make a few assumptions.
+
+```{r}
+
+# Filtering only the rows we need
+key_categories <- demographics_age %>% 
+  filter(award %in% c("Best Actor", "Best Actress", "Best Director"))
+
+# Function for fixing some wrongly imported dates with square brackets
+clean_date_str <- function(date_str) { 
+  clean <- sub("\\[.*$", "", date_str)  
+  clean <- trimws(clean)  
+  return(clean)
+}
+
+# Converting the date string into a standardized format DD-MM-YYYY.
+fix_date <- function(date_str) {
+  date_str <- clean_date_str(date_str)
+  
+  parts <- unlist(strsplit(date_str, "-"))
+  if (length(parts) != 3) return(NA)  
+  
+  day <- sprintf("%02d", as.numeric(parts[1]))
+  month_map <- c("Jan" = "01", "Feb" = "02", "Mar" = "03", "Apr" = "04",
+                 "May" = "05", "Jun" = "06", "Jul" = "07", "Aug" = "08",
+                 "Sep" = "09", "Oct" = "10", "Nov" = "11", "Dec" = "12")
+  month <- month_map[parts[2]] # mapping the month abbreviation to its numeric representation.
+  if (is.na(month)) return(NA)  
+  
+  year_raw <- parts[3]
+  year <- suppressWarnings(as.numeric(year_raw))  
+  if (is.na(year)) return(NA)  
+  
+  if (nchar(year_raw) == 2) {  #If the year is 2 digits → convert to 1900 + year
+    year <- 1900 + year  
+  } else if (nchar(year_raw) == 4) {  #If the year is 4 digits it is okay
+    year <- year
+  } else {
+    return(NA) 
+  }
+  return(sprintf("%s-%s-%d", day, month, year))
+}
+
+key_categories$birth_fixed <- sapply(key_categories$date_of_birth, fix_date)
+
+# removing NAs
+key_categories <- key_categories[!is.na(key_categories$birth_fixed), ]
+
+# calculating the current age of the person from the acquired date of birth
+key_categories$age <- floor(as.numeric(difftime(Sys.Date(), as.Date(key_categories$birth_fixed, format = "%d-%m-%Y"), units = "days")) / 365.25)
+
+# creating a variable with only the birth year from the fixed date of birth
+key_categories$birth_year <- as.numeric(format(as.Date(key_categories$birth_fixed, format = "%d-%m-%Y"), "%Y"))
+
+# calculating the age at the time of the award
+key_categories$age_while_award <- key_categories$year_of_award - key_categories$birth_year
+```
+
+
+## **Subsetting Movies Info**
+
+Once again we decided to subset original dataset to only columns we need and that are make sense for our analysis.
+
+```{r}
+# Subsetting the columns
+movieinfo <- df2[c("Movie","Running.time","Genre","Budget","Box.Office","Actors.Box.Office..","Director.Box.Office..","Earnings", "Oscar.and.Golden.Globes.nominations","Oscar.and.Golden.Globes.awards", "IMDb.score")]
+
+head(movieinfo)
+
+```
+
+### **Missing values**
+
+The only missing values in this data set are in the `Oscar and Golden Globes awards` column, this doesn't concern us since after the joining on the two datasets these instances are not among the ones that we are able to merge.
+
+```{r}
+# Looking at missing values
+colSums(is.na(movieinfo))
+```
+
+```{r}
+#Joining both datasets for all categories (actors, actresses and directors)
+
+
+#normalization function
+normalize_title <- function(title) {
+  title <- iconv(title, to = "UTF-8", sub = "")  # Remove invalid encodings
+  title <- tolower(title)# lowercase
+  title <- gsub("[[:punct:]]", " ", title)#remove punctuation
+  title <- gsub("\\s+", " ", str_trim(title))#whitespace
+  return(title)
+}
+
+
+# normalizing movie titles in both datasets
+demographics <- demographics %>%
+  mutate(normalized_movie = normalize_title(movie))
+
+movieinfo <- movieinfo %>%
+  mutate(normalized_movie = normalize_title(Movie))
+
+# Left fuzzy join using Levenshtein distance
+joined_df <- merge(
+  demographics, 
+  movieinfo, 
+  by = "normalized_movie", 
+  method = "lv",         # Levenshtein distance
+  max_dist = 2           # Adjust based on how fuzzy the match should be
+)
+
+nrow(joined_df)
+
+```
+
+
+## **Actor and director data frame for only demographics**
+
+Now lets separate actors and directors into separate data-frames.
+
+**For demographics**
+
+```{r,echo = FALSE, collapse = TRUE}
+#unique(demographics$award)
+director <- demographics[demographics$award == "Best Director", ]
+actor <- demographics[demographics$award == "Best Actress" | demographics$award == "Best Actor", ]
+print("Number of rows in director dataframe:")
+nrow(director)
+print("Number of rows in actor dataframe:")
+nrow(actor)
+
+```
+**For the joined demographics and movie info**
+
+```{r, collapse = TRUE, echo = FALSE}
+director_joined <- joined_df[joined_df$award == "Best Director", ]
+actor_joined <- joined_df[joined_df$award == "Best Actress" | joined_df$award == "Best Actor", ]
+
+print("Number of rows in joined director dataframe:")
+nrow(director_joined)
+print("Number of rows in joined actor dataframe:")
+nrow(actor_joined)
+
+```
+
+Note: We will only use joined dataframes where necessary since we loose a lot of instances in this step. So `director_joined` and `actor_joined` will only be used for public opinion analysis.
+
+
+# **Confidence Exploration**
+
+Since we omit confidence from the rest of our analysis, we will at least briefly explore what it can tell us.
+
+```{r,echo = FALSE}
+df_conf <- df1 %>%
+  dplyr::select(birthplace.confidence, race_ethnicity.confidence, religion.confidence,
+         sexual_orientation.confidence, year_of_award.confidence) %>%
+  mutate(row_id = row_number())  
+
+df_long <- pivot_longer(df_conf, 
+                        cols = -row_id, 
+                        names_to = "variable", 
+                        values_to = "confidence")
+
+df_long$confidence <- as.numeric(df_long$confidence)
+
+ggplot(df_long, aes(x = confidence)) +
+  geom_histogram(binwidth = 0.1, fill = "skyblue", color = "black") +
+  facet_wrap(~ variable, scales = "free_y") +
+  labs(title = "Confidence Distribution of Variables",
+       x = "Confidence Level", y = "Count") +
+  theme_minimal()
+
+```
+
+
+```{r}
+df_summary <- df_long %>%
+  group_by(variable) %>%
+  summarise(
+    avg_confidence = round(mean(confidence, na.rm = TRUE), 3),
+    high_conf_pct = round(mean(confidence == 1, na.rm = TRUE) * 100, 1),
+    total = n()
+  )
+
+print(df_summary)
+
+```
+
+According to confidence columns the data is reliable, all confidence is above 95 %. But it is not 100 % so we have to be careful with results.
+
+# **Demographics Of Academy Awards Winners**
+
+## **Exploration Of Age**
+
+We started by calculating basic statistics.
+
+```{r}
+age_summary <- aggregate(age_while_award ~ award, 
+                         data = key_categories, 
+                         FUN = summary)
+
+print(age_summary)
+```
+
+* Male Actors peak around 44 years of age, with only a few winners below 39 and above 51.
+
+* Female Actresses peak around 34 years of age, with only a few winners below 29 and above 39.
+
+* Directors in general peak around the age of 46 with only a few winners below 41 and above 53.
+
+
+
+```{r,echo = FALSE}
+
+medians<- aggregate(age_while_award ~ award, 
+                         data = key_categories, 
+                         FUN = median)
+
+ggplot(key_categories, aes(x = age_while_award, fill = award)) +
+  geom_histogram(binwidth = 5, position = "stack", alpha = 0.5) +
+  facet_wrap(~ award, ncol = 1, scales = "free_y") +
+  scale_fill_manual(
+    values = c(
+      "Best Actor" = "lightskyblue",     
+      "Best Actress" = "palevioletred1",   
+      "Best Director" = "lightsalmon"   
+    )
+  ) +
+  geom_vline(
+    data = medians,  
+    aes(xintercept = age_while_award, color = award), 
+    linetype = "dashed",
+    linewidth = 0.8,
+    show.legend = FALSE
+  ) +
+  scale_color_manual(  
+    values = c(
+      "Best Actor" = "lightskyblue",     
+      "Best Actress" = "palevioletred1",   
+      "Best Director" = "lightsalmon"   
+    )
+  ) +
+  labs(
+    title = "Histogram of Age at the Time of Award by Category",
+    x = "Age at the Time",
+    y = "Number of Awardees"
+  ) +
+  theme_minimal() +
+  theme(legend.position = "none")
+
+```
+
+Overall there is a right-skew in all of these categories. Actresses especially have a younger skew, compared to actors/directors. 
+
+```{r,echo = FALSE}
+
+ggplot(key_categories, aes(x = award, y = age_while_award, fill = award)) +
+  geom_boxplot() +
+  scale_fill_manual(
+    values = c(
+      "Best Actor" = "lightskyblue",     
+      "Best Actress" = "pink",   
+      "Best Director" = "peachpuff"   
+    )
+  ) +
+  labs(
+    title = "Boxplot of Ages at Time of Award by Category",
+    x = "Award Category",
+    y = "Age at Time of Award",
+    fill = "Award Category"
+  ) +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1)) 
+
+```
+
+Though there are some outliers (later age award receivers) in the actress category there seems to be an age disparity in the awards. We will test this using ANOVA.
+
+
+```{r}
+# Quantifying the disparities
+model_1 <- aov(age_while_award~award, key_categories)
+summary(model_1)
+EtaSq(model_1)
+
+```
+
+The Anova results reveal statistically significant differences in the age at which awards are received across all categories. Almost 20 % of age variance is explained by award category.
+
+
+
+
+
+
+## **Exploration Of Gender**
+```{r,echo = FALSE}
+
+gender_counts <- key_categories %>% 
+  filter(award %in% c("Best Actor", "Best Actress")) %>% 
+  count(award)
+
+ggplot(gender_counts, aes(x = award, y = n, fill = award)) +
+  geom_bar(stat = "identity",alpha= 0.8) +
+  labs(title = "Number of Awards by Gender", x = "Award", y = "Number of Awards") +
+  theme_minimal() +
+  scale_fill_manual(values = c("Best Actor" = "lightskyblue", "Best Actress" = "pink"))
+```
+
+```{r,echo = FALSE}
+
+ggplot(key_categories %>% filter(award %in% c("Best Actor", "Best Actress")), 
+       aes(x = year_of_award, y = age_while_award, color = award, shape = award)) +
+  geom_point(alpha = 0.7) +
+  labs(title = "Age vs Year of Award for Best Actor and Best Actress", 
+       x = "Year of Award", 
+       y = "Age at the Time of Award") +
+  scale_color_manual(values = c("Best Actor" = "lightskyblue", "Best Actress" = "palevioletred1")) +
+  theme_minimal()
+```
+
+
+* The data shows that more actresses were awarded than actors.
+* Women receive the most awards between the ages of 20 and 40.
+* Male actors receive the most awards between the ages of 35 and 55.
+
+We will remove some outliers for regression analysis:
+```{r, warning = FALSE, include= FALSE}
+library(MASS)
+
+```
+
+```{r}
+
+data = key_categories[,c("year_of_award","age_while_award")]
+
+mahalanobis_distances <- mahalanobis(data, colMeans(data), cov(data))
+critical_value = qchisq(0.975, df = ncol(data))
+outliers = data[mahalanobis_distances > critical_value, ] 
+outliers
+
+key_categories<- key_categories[!(mahalanobis_distances > critical_value), ]
+
+```
+
+**Regression model & testing for homogeneity of variance:**
+
+```{r}
+model_age<- lm(age_while_award ~ year_of_award, data = key_categories)
+summary(model_age)
+
+#homogeneity of variance for quantitative variables
+fligner.test(age_while_award ~ year_of_award, data = key_categories)
+
+```
+
+Year of the award explains some of the variability in age at which the award won, but only about 3 %. The age at which awards are received has remained relatively consistent.Test for homogeneity shows that the relationship is homogeneous, for us it means that the data doesn't show a trend towards greater age inclusiveness.
+
+
+## **Exploration Of Countries**
+```{r,echo = FALSE, collapse = TRUE}
+country_counts <- sort(table(demographics$country), decreasing=F)
+#country_counts
+usa_count<-nrow(subset(demographics,country %in% c("USA", "New York City")))
+not_usa_count <- nrow(subset(demographics, !(country %in% c("USA", "New York City"))))
+
+print("Number of USA winners:")
+usa_count
+print("Number of non-USA winners:")
+not_usa_count
+
+print("Ratio of USA to non-USA Oscar winners")
+usa_count/(usa_count+not_usa_count)
+```
+* There are 286 people from USA who won an Oscar in the years 1927-2014, 155 are from all other countries.
+* Americans make up about 65 % of all winners
+
+**Have the proportions changed over time?**
+
+```{r,echo = FALSE, collapse = TRUE}
+
+demographics$decade <- floor(demographics$year_of_award / 10) * 10
+
+usa_count_by_decade <- table(demographics[demographics$country == 'USA', 'decade'])
+non_usa_count_by_decade <- table(demographics[demographics$country != 'USA', 'decade'])
+
+
+plot_data <- data.frame(
+  decade = as.numeric(names(usa_count_by_decade)),
+  usa_count = as.numeric(usa_count_by_decade),
+  non_usa_count = as.numeric(non_usa_count_by_decade)
+)
+
+
+plot_data_long <- reshape2::melt(plot_data, id.vars = "decade", variable.name = "country", value.name = "count")
+
+# Plot the 100% stacked bar plot
+
+ggplot(plot_data_long, aes(x = factor(decade), y = count, fill = country)) +
+  geom_bar(stat = "identity", position = "fill") +
+  geom_text(aes(label = count), position = position_fill(vjust = 0.5), color = "grey20") +
+  labs(title = 'American to Non-American Oscar Winners',
+       x = 'Decade',
+       y = 'Proportion') +
+  scale_fill_manual(values = c("usa_count" = "peachpuff", "non_usa_count" = "plum"), labels = c("USA", "Non-USA")) +
+  theme_minimal()
+
+
+
+```
+
+The proportion of USA winners fluctuates over the decades with notable peak in 1980s. Since then there seems to be a trend towards greater international representation.
+
+# **Underrepresented groups & inclusivity over time**
+
+Heatmap of ethnicity vs sexual orientation.
+
+```{r,echo = FALSE, message = FALSE, warning = FALSE}
+eth_sex <- demographics %>%
+  group_by(race_ethnicity, sexual_orientation) %>%
+  summarise(count = n()) %>%
+  ungroup()
+
+ggplot(eth_sex, aes(x = race_ethnicity, y = sexual_orientation, fill = count)) +
+  geom_tile(color = "black") +
+  scale_fill_gradient(low = "white", high = "firebrick") +
+  labs(title = "Heatmap: Ethnicity vs Sexual Orientation",
+       x = "Ethnicity", y = "Sexual Orientation") +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+```
+
+The most dominant group by far is White & Straight, followed by White & Bisexual. There is virtually no representation for non-white queer individuals.
+Several combinations are either extremely rare or entirely missing from the data, highlighting intersectional underrepresentation.
+
+
+
+
+
+## **Queer individuals**
+
+Relationship between `award` and `sexual_orientation`:
+
+```{r,echo = FALSE}
+ggplot(demographics, aes(x = award, fill = sexual_orientation)) +
+  geom_bar(position = "fill") +
+  labs(title = "Sexual Orientation Distribution Across Awards",
+       x = "Award Category", y = "Proportion") +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1)) +
+  scale_fill_manual(values = c("peachpuff", "lightskyblue", "pink", "lightgreen", "plum"))
+
+```
+
+It clearly shows that the majority of winners identify as straight in all categories.
+Queer individuals are present across all award types, but always as a small minority.
+
+
+```{r,echo = FALSE, collapse = TRUE}
+queer<-subset(demographics[, c( "sexual_orientation","year_of_award","award", "movie")], sexual_orientation %in% c("Bisexual", "Gay", "Lesbian"))
+
+print("Percentage of queer winners from total winners:")
+print(sum(demographics$sexual_orientation %in% c("Bisexual", "Gay", "Lesbian"))/nrow(demographics) * 100)
+
+print("Years in which queer individual has won and award:")
+print(sort(unique(queer$year_of_award)))
+
+ggplot(queer, aes(x = sexual_orientation, fill = sexual_orientation)) +
+  geom_bar() +
+  labs(title = "Distribution of Queer Awardees by Sexual Orientation",
+       x = "Sexual Orientation", y = "Count") +
+  theme_minimal() +
+  scale_fill_manual(values = c("peachpuff", "lightskyblue", "pink"))
+
+
+```
+
+There are 30 queer people in our dataset. 21 of them are bisexual, 7 are gay and 2 are lesbian. That means only 6.8 % of award winners are not straight, but according to estimated values about 7 % of the whole population is not straight.That means that the distribution is very similiar to overall world population. So we decided that queer people are not underrepresented. 
+
+```{r,echo = FALSE}
+queer$decade <- floor(queer$year_of_award / 10) * 10
+demographics$decade<-floor(demographics$year_of_award/10)*10
+
+decade_counts <- queer %>%  group_by(decade) %>%  summarise(count = n())
+
+ggplot(decade_counts, aes(x = factor(decade), y = count)) +
+  geom_bar(stat = "identity", fill = "plum") +
+  labs(title = "Number of Queer Individuals Awarded per Decade",
+       x = "Decade",
+       y = "Number of Individuals") +
+  theme_minimal()
+
+```
+
+This graph shows us how many queer people recieved an oscar per decade
+
+* The most queer people received award in 1960s. 
+* In each decade since 1920 at least one non straight person received an oscar. 
+* There are no queer people who received award after year 2000 (data is until 2014). 
+
+```{r,echo = FALSE}
+total_per_decade <- demographics %>%
+  group_by(decade) %>%
+  summarise(total = n())
+
+queer_per_decade <- queer %>%  group_by(decade) %>%  summarise(queer_count = n())
+
+percentage_df <- merge(total_per_decade, queer_per_decade, by = "decade", all.x = TRUE)
+
+percentage_df$percent_queer <- (percentage_df$queer_count / percentage_df$total) * 100
+
+ggplot(percentage_df, aes(x = factor(decade), y = percent_queer)) +
+  geom_bar(stat = "identity", fill = "lightgreen") +
+  geom_hline(yintercept = mean(percentage_df$percent_queer, na.rm = TRUE), 
+             color = "green3", linetype = "dashed", linewidth = 1) +
+  geom_text(aes(label = paste0("(", total, ")"), y = 0), 
+            vjust = -0.3, size = 3, color = "darkgreen") +
+  labs(title = "Percentage of Queer Awardees per Decade",
+       x = "Decade",
+       y = "Percentage (%)") +
+  theme_minimal()
+
+
+```
+
+
+This graph is similar to the previous one, but it shows the proportion of queer individuals among all awardees.
+
+* In the graph distribution per  - it was counted as (number of queer poeple per decade):(total number of oscar winners per decade)
+* The number in brackets just above x-axis shows total number of oscar winners per decade 
+* we can see that 1920 has a big % of non straight people this is due to the fact that there are only 3 values from 1920, one of them not straight, making queer population 33% 
+
+
+
+```{r,echo = FALSE}
+
+filtered_df <- subset(percentage_df, decade != 1920)
+
+ggplot(filtered_df, aes(x = factor(decade), y = percent_queer)) +
+  geom_bar(stat = "identity", fill = "darkolivegreen1") +
+  geom_hline(yintercept = mean(filtered_df$percent_queer, na.rm = TRUE), 
+             color = "darkolivegreen3", linetype = "dashed", linewidth = 1) +
+  geom_text(aes(label = paste0("(", total, ")"), y = 0), 
+            vjust = -0.3, size = 3, color = "darkgreen") +
+  labs(title = "Percentage of Queer Awardees per Decade (Excluding 1920s)",
+       x = "Decade",
+       y = "Percentage (%)") +
+  theme_minimal()
+```
+
+* In the second graph, without 1920s, the values are closer together.
+
+* The mean is around 7% as we said before.
+
+* We can see that this graph is much closer in distribution to the one showing absolute values (Number of Queer Individuals Awarded per Decade).
+
+* There were truly more queer people than is usual in 1960s and it was not due to some lack of data as we saw in 1920s.
+
+**The first queer actors to win Oscar award**
+```{r,echo = FALSE}
+first_lesbian <- actor %>%
+  filter(sexual_orientation == "Lesbian") %>%
+  arrange(year_of_award) %>%
+  slice(1)
+
+
+first_gay <- actor %>%
+  filter(sexual_orientation == "Gay") %>%
+  arrange(year_of_award) %>%
+  slice(1)
+
+first_bisexual <- actor %>%
+  filter(sexual_orientation == "Bisexual") %>%
+  arrange(year_of_award) %>%
+  slice(1)
+
+first_queer_actors <- bind_rows(first_lesbian, first_gay, first_bisexual)
+
+print(first_queer_actors[c("year_of_award","person", "movie","sexual_orientation","race_ethnicity")])
+
+
+```
+
+
+## **Non-white individuals**
+
+
+```{r,echo = FALSE}
+nonwhite <- subset(demographics, race_ethnicity != "White")
+#dim(nonwhite)
+nonwhite_queer <- subset(nonwhite, sexual_orientation %in% c("Bisexual", "Gay", "Lesbian"))
+print(nonwhite_queer)
+```
+
+* There are 30 non white people, the same number as queer people
+* They are not the same poeple
+* There isn't any non straight and non white person in our data
+
+```{r,echo = FALSE}
+nonwhite$decade <- floor(nonwhite$year_of_award / 10) * 10
+demographics$decade <- floor(demographics$year_of_award / 10) * 10
+
+total_per_decade <- demographics %>%
+  group_by(decade) %>%
+  summarise(total = n())
+
+nonwhite_per_decade <- nonwhite %>%
+  group_by(decade) %>%
+  summarise(nonwhite_count = n())
+
+
+percentage_df_nonwhite <- merge(total_per_decade, nonwhite_per_decade, by = "decade", all.x = TRUE)
+percentage_df_nonwhite$nonwhite_count[is.na(percentage_df_nonwhite$nonwhite_count)] <- 0
+percentage_df_nonwhite$percent_nonwhite <- (percentage_df_nonwhite$nonwhite_count / percentage_df_nonwhite$total) * 100
+
+ggplot(nonwhite_per_decade, aes(x = factor(decade), y = nonwhite_count)) +
+  geom_bar(stat = "identity", fill = "peachpuff") +
+  labs(title = "Count of Non-White Awardees per Decade",
+       x = "Decade",
+       y = "Count of Non-White Individuals") +
+  theme_minimal()
+
+```
+
+* We can see that most of the non white people were awarded in 2000s 
+* There were no non white awards in 1920, 1930 and 1970 
+* Only 6.8 % of all oscards winners weren't white 
+
+
+
+```{r,echo = FALSE}
+
+ggplot(percentage_df_nonwhite, aes(x = factor(decade), y = percent_nonwhite)) +
+  geom_bar(stat = "identity", fill = "lightsalmon") +
+  geom_hline(yintercept = mean(percentage_df_nonwhite$percent_nonwhite, na.rm = TRUE), 
+             color = "coral3", linetype = "dashed", linewidth = 1) +
+  geom_text(aes(label = paste0("(", total, ")"), y = 0), 
+            vjust = -0.3, size = 3, color = "red") +
+  labs(title = "Percentage of Non-White Awardees per Decade",
+       x = "Decade",
+       y = "Percentage (%)") +
+  theme_minimal()
+
+```
+
+* This graph represents % of non white oscar winners per decade
+* It is a bit different from the graph before
+* We can see that it distribution of nonwhite awardees in 2010s is higher than in 2000s
+* We didn't see this before because there were less values in 2010 since the dataset ends in 2014
+* Above 20% people were nonwhite 1 of 5 oscar winners in 2010 
+
+
+
+```{r,echo = FALSE}
+ggplot(nonwhite, aes(x = race_ethnicity, fill = race_ethnicity)) +
+  geom_bar() +
+  labs(title = "Distribution of Race/Ethnicity Among Non-White Awardees",
+       x = "Race/Ethnicity",
+       y = "Count") +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1)) +
+  scale_fill_manual(values = c("peachpuff", "lightskyblue", "pink", "lightgreen", "plum"))
+
+
+```
+
+
+* 50 % of the non white people are black 
+* The least represented are Middle Eastern, Multiracial and Asian
+
+
+```{r,echo = FALSE, collapse = TRUE}
+us_race_distribution <- list(  White = 57.8,  Hispanic = 18.7,
+  Black = 12.1,  Asian = 5.9,  MultiRacial = 4.1,
+  Native_American_Alaska_Native = 0.7,  Native_Hawaiian_Other_Pacific_Islander = 0.2
+)
+
+print("Distribution of race and ethnicity in the US in [%]")
+print(us_race_distribution)
+```
+
+* This list contains the percentage distribution of races in the United States.
+* We chose to compare it to the racial makeup of Oscar nominees, 
+* even though nominations can come from any country, most of them are from USA
+
+```{r,echo = FALSE, collapse = TRUE}
+world_race_distribution <- list(
+  White = 16,  Hispanic = 10, Black = 15,   Asian = 60, MultiRacial = 10)
+
+race_counts <- table(nonwhite$race_ethnicity)
+
+
+print("Distribution of race and ethnicity in the World in [%]")
+race_percentages <- (race_counts / 441) * 100
+print(race_percentages)
+
+```
+
+```{r,echo = FALSE}
+
+nrow(subset(nonwhite, year_of_award > 2000 & race_ethnicity == "Black"))/nrow(subset(demographics, year_of_award >2000,))
+
+```
+
+Hispanic individuals are the most underrepresented in the data set compared to the USA racial distribution in 2025.
+
+In contrast, Black individuals are the least underrepresented, with 12 % of the USA population being Black, while the data set reflects 3.4 % of Black nominees. That is 4 times less. But after year 2000 about 12 % of awardees were Black, that is the same number as percentage of black people in the United states.
+
+Asians are also underrepresented. To match the USA population, there should be roughly four times as many Asian Oscar winners. However, given that over 50 % of the global population is Asian, to match global population proportions, there should be approximately 50 times more Asian Oscar winners.
+
+So in summary all non white people are underrepresented according to USA racial distribution in 2025 when we look at all data. However this data goes back a hundred years and racial distribution in USA has changed over the years. 
+
+ * The white population used to be much bigger (89.7% in 1920 compared to 61% in 2020).
+ * Black population has been getting bigger about 1% each year.
+ * There are more and more multiracial people.
+ 
+Representation of non white people has been rising. Black people have not been underrepresented since the year 2000. 
+
+It's important to note that the data used is over 10 years old and newer data may have very different results.
+
+**The first non-white actors to win Oscars**
+```{r,echo = FALSE}
+
+first_hispanic <- actor %>%
+  filter(race_ethnicity == "Hispanic") %>%
+  arrange(year_of_award) %>%
+  slice(1)
+
+
+first_black <- actor %>%
+  filter(race_ethnicity == "Black") %>%
+  arrange(year_of_award) %>%
+  slice(1)
+
+
+first_multiracial <- actor %>%
+  filter(race_ethnicity == "Multiracial") %>%
+  arrange(year_of_award) %>%
+  slice(1)
+
+
+first_middle_eastern <- actor %>%
+  filter(race_ethnicity == "Middle Eastern") %>%
+  arrange(year_of_award) %>%
+  slice(1)
+first_minority_actors <- bind_rows(first_hispanic, first_black, first_multiracial, first_middle_eastern)
+print(first_minority_actors[c("year_of_award","person", "movie","race_ethnicity","sexual_orientation")])
+
+
+```
+
+
+# **Reaction Of The General Public**
+
+```{r,echo = FALSE, collapse = TRUE}
+print("Number of each sexual minority in our joined dataframe:")
+actor_joined%>%
+  group_by(sexual_orientation)%>%
+  summarise(total = n())
+
+
+
+```
+```{r,echo = FALSE, collapse = TRUE}
+
+print("Number of each racial/ethnical minority in our joined dataframe:")
+actor_joined%>%
+  group_by(race_ethnicity)%>%
+  summarise(total = n())
+
+
+```
+
+
+We decided to join race_ethnicity column into two categories only - the `Minority` and `White`. It is mainly because white people dominate the Oscars.
+
+```{r}
+# Joining race and ethnicity
+actor_joined <- actor_joined %>%
+  mutate(category_ethnicity = case_when(
+    race_ethnicity %in% c("Asian","Hispanic","Black","Multiracial","Middle Eastern") ~ "Minority",
+    race_ethnicity == "White" ~ "White",
+    TRUE ~ NA_character_
+  ))
+
+
+director_joined <- director_joined %>%
+  mutate(category_ethnicity = case_when(
+    race_ethnicity %in% c("Asian","Hispanic","Black","Multiracial","Middle Eastern") ~ "Minority",
+    race_ethnicity == "White" ~ "White",
+    TRUE ~ NA_character_
+  ))
+
+```
+
+For the sexual_orientation we decided to do the same only this time we have the `Queer` and  `Straight` category.
+
+
+```{r}
+# Joining sexual orientation
+actor_joined <- actor_joined %>%
+  mutate(category = case_when(
+    sexual_orientation %in% c("Bisexual", "Lesbian", "Matter of Dispute") ~ "Queer",
+    sexual_orientation == "Straight" ~ "Straight",
+    TRUE ~ NA_character_
+  ))
+
+director_joined <- director_joined %>%
+  mutate(category = case_when(
+    sexual_orientation %in% c("Bisexual", "Lesbian", "Matter of Dispute") ~ "Queer",
+    sexual_orientation == "Straight" ~ "Straight",
+    TRUE ~ NA_character_
+  ))
+
+```
+
+
+**Distribution of of actors with and without assigned IMDb scores over the years**
+
+```{r,echo = FALSE}
+actor_joined$decade <- floor(actor_joined$year_of_award / 10) * 10
+actor$decade <- floor(actor$year_of_award / 10) * 10
+par(mfrow = c(1, 2))
+hist(actor_joined$decade, 
+  xlab = "Year of Award",
+  ylab = "Count",
+  main = "Actors with IMDb Rating",
+  col = "lightgreen",
+  xlim = c(1920, 2014))
+hist(actor$decade, 
+  xlab = "Year of Award",
+  ylab = "Count",
+  main = "Actors without IMDb Rating",
+  col = "plum",
+  xlim = c(1920, 2014))
+
+mtext("Distribution of of actors without IMDb scores", outer = TRUE, cex = 1.5)
+
+
+```
+
+
+We chose median instead of mean for comparisons, since we are aware of a few outliers and we don't want them to influence our results disproportionately.
+
+**RACE/ETHNICITY**
+
+```{r}
+
+analysis <- actor_joined %>%
+  group_by(category_ethnicity) %>%
+  summarise(
+    med_IMDb_score = median(IMDb.score, na.rm = TRUE),
+    med_box_office = median(Box.Office, na.rm = TRUE),
+    med_box_office_actor = median(Actors.Box.Office.., na.rm = TRUE),
+    med_budget = median(Budget, na.rm = TRUE)
+  )
+
+print(analysis)
+
+```
+
+Minority-led films have higher actor-level box office and higher budgets. White-led films perform better at the box office overall and have slightly higher IMDb Scores.
+
+The higher budget and comparable rating for minority-led films suggest these are not underperforming, though they may be underproduced.
+
+```{r,echo = FALSE}
+
+ggplot(analysis, aes(x = category_ethnicity, y = med_IMDb_score, fill = category_ethnicity)) +
+  geom_bar(stat = "identity") +
+  theme_minimal() +
+  scale_fill_manual(values = c("lightgreen", "plum")) +
+  labs(title = "Barplot of median  IMDb Scores by Race/Ethnicity", x = "Race/Ethnicity", y = "Average IMDb Score")
+
+```
+
+**IMDb Score:** White actors have slightly higher median IMDb score, but the difference is small, suggesting that critical reception is roughly comparable.
+
+```{r,echo = FALSE}
+ggplot(analysis, aes(x = category_ethnicity, y = med_box_office, fill = category_ethnicity)) +
+  geom_bar(stat = "identity") +
+  scale_fill_manual(values = c("lightgreen", "plum")) +
+  theme_minimal() +
+  labs(title = "Barplot of median Box Office Earnings by Race/Ethnicity", x = "Race/Ethnicity", y = "Median Box Office Earnings")
+
+
+```
+
+**Box Office:** The median box office for films with white actors is 25 million dollars higher than that of minority actors. 
+
+```{r,echo = FALSE}
+ggplot(analysis, aes(x = category_ethnicity, y = med_box_office_actor, fill = category_ethnicity)) +
+  geom_bar(stat = "identity") +
+  scale_fill_manual(values = c("lightgreen", "plum")) +
+  theme_minimal() +
+  labs(title = "Barplot of median Box Office Earnings by Race/Ethnicity", x = "Race/Ethnicity", y = "Median Box Office Earnings") 
+
+
+```
+```{r,echo = FALSE}
+ggplot(analysis, aes(x = category_ethnicity, y = med_box_office_actor, fill = category_ethnicity)) +
+  geom_bar(stat = "identity") +
+  scale_fill_manual(values = c("lightgreen", "plum")) +
+  theme_minimal() +
+  labs(title = "Barplot of median Budget by Race/Ethnicity", x = "Race/Ethnicity", y = "Median Budget")
+
+
+```
+
+
+
+```{r,echo = FALSE, collapse = TRUE}
+print("Comparison of film box office, awards and individual box office values by race/ethnicity")
+comparison <- actor_joined %>%
+  group_by(category_ethnicity) %>%
+  summarise(
+    med_IMDb_score = median(IMDb.score, na.rm = TRUE),
+    med_box_office = median(Box.Office, na.rm = TRUE),
+    med_box_office_actor = median(Actors.Box.Office.., na.rm = TRUE),
+    med_budget = median(Budget, na.rm = TRUE)
+  )
+print(comparison)
+
+```
+
+**SEXUAL ORIENTATION**
+
+```{r,echo = FALSE, collapse= TRUE}
+
+print("Comparison of film box office, awards and individual box office values by sexual orientation")
+analysis_sexual_orientation <- actor_joined %>%
+  group_by(category) %>%
+  summarise(
+    med_IMDb_score = median(IMDb.score, na.rm = TRUE),
+    med_box_office = median(Box.Office, na.rm = TRUE),
+    med_box_office_actor = median(Actors.Box.Office.., na.rm = TRUE),
+    med_budget = median(Budget, na.rm = TRUE)
+  )
+
+print(analysis_sexual_orientation)
+
+
+
+```
+
+
+```{r,echo = FALSE}
+ggplot(analysis_sexual_orientation, aes(x = category, y = med_IMDb_score, fill =category)) +
+  geom_bar(stat = "identity") +
+  scale_fill_manual(values = c("lightgreen", "plum")) +
+  theme_minimal() +
+  labs(title = "Barplot of median IMDb scores by sexual orientation", x = "Sexual Orientation", y = "Median IMDb Score")
+
+```
+
+On average, films with queer actors tend to slightly outperform films with straight actors in box office earnings and awards.
+
+
+
+# **Conclusion**
+
+The influence of demographics on the likelihood of winning an Oscar in leading roles and directing is substantial and historically biased. Age, race, gender and nationality all play significant roles in shaping Oscar outcomes:
+
+* **Age and Gender**: Women tend to win at younger ages compared to men, especially in acting categories, reflecting gendered career trajectories. Men maintain visibility and relevance into older age, while women's chances decline sharply after 40.
+* **Race and Inclusivity**: Nonwhite individuals, particularly black actors, were underrepresented for most of the Oscars' history. However, the last two decades have shown a measurable shift towards greater racial diversity in award recipients.
+* **Nationality**: The Oscars have traditionally favored mostly american talent, with limited international representation. A slow but noticeable increase in non-USA winners has emerged since the 1980s.
+* **Sexual orientation**: Queer individuals remain largely invisible in Oscar wins, which may be due to lack of disclosure or limitations in the available data.
+
+While the Academy's decisions have often reflected structural biases, more recent years suggest some progress towards greater inclusivity. Our limited IMDb data indicated no significant public backlash toward minority winners, implying that audiences are not resistant, if not supportive (especially in case of queer individuals), to more diverse representation among Oscar recipients.
